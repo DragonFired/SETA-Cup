@@ -1,18 +1,19 @@
-#include <SD.h>                      // need to include the SD library
-// Pins usage on Arduino （with SD card）
-//   D4: SD_CS
-//   D11: SD_DI
-//   D12: SD_DO
-//   D13: SD_CLK
-#define SDChipPin 4
+#include "SoftwareSerial.h"
+#include "DFRobotDFPlayerMini.h"
 
-#include <TMRpcm.h>           //  also need to include this library...
+// Use pins 2 and 3 to communicate with DFPlayer Mini
+
+static const uint8_t PIN_MP3_TX = 2; // Connects to module's RX
+static const uint8_t PIN_MP3_RX = 3; // Connects to module's TX
+SoftwareSerial softwareSerial(PIN_MP3_RX, PIN_MP3_TX);
+
+// Create the Player object
+
+DFRobotDFPlayerMini mp3_player;
 
 #define LiftSwitchPin 7
 #define LoopSwitchPin 8
-#define AudioOutPin 9
 
-TMRpcm Audio;   // create an object for use in this sketch
 int LiftSwitch; 
 int LoopSwitch; 
 bool LiftTriggered = false;
@@ -27,24 +28,35 @@ void setup(){
   while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
   }
-  Serial.write("Welcome to Audio player v0.6\n");
+  Serial.write("Welcome to Audio mp3_player v0.7\n");
   pinMode(LiftSwitchPin,INPUT_PULLUP);   // Define the Lift Switch input as digital input.
   pinMode(LoopSwitchPin,INPUT_PULLUP);   // Define the Loop Switch input as digital input.
 
   LiftTriggered = false;
-  Audio.speakerPin = AudioOutPin;
-  
-  int result = SD.begin(SDChipPin);
-  while (!result) {
-    Serial.println("Initialization failed!");
-    result = SD.begin(SDChipPin);
-  }
-  Serial.println("Initialization done. SD card available");
+  softwareSerial.begin(9600);// Start communication with DFPlayer Mini
+  bool running = false;
 
-  //root = SD.open("/");
-  //printDirectory(root, 0);
-  Audio.setVolume(5);        // 0 to 7. Set volume level. Distortion for anthing above 5 :-(
-  
+  bool LoopOn = !digitalRead(LoopSwitchPin); 
+  if (LoopOn) {
+    Serial.println("Looping mode: On");
+  }
+  else {
+    Serial.println("Looping mode: Off");
+  }
+
+  while(!running) {
+    if (mp3_player.begin(softwareSerial)) {
+      Serial.println("Player OK");
+      // Set volume to maximum (0 to 30).
+      mp3_player.volume(30);
+      mp3_player.play(1);
+      running = true;
+    }
+    else {
+      Serial.println("Connecting to DFPlayer Mini failed!");
+//      running = true;
+    }
+  }
   strip.begin();
   strip.setBrightness(100);
   strip.show(); // Initialize all pixels to 'off'
@@ -55,7 +67,7 @@ void loop() {
   uint8_t startColor = 200;
   uint8_t endColor = 256;
   bool ledsOn = false;
-
+  
   for (int j=startColor; j < 256; j++) {     // cycle all 256 colors in the wheel
     if (checkSwitchPlayAudio()) {
       ledsOn = true;
@@ -86,28 +98,33 @@ void loop() {
 }
 
 int checkSwitchPlayAudio() {
-  LiftSwitch = digitalRead(LiftSwitchPin); 
+  LiftSwitch = !digitalRead(LiftSwitchPin); 
   LoopSwitch = !digitalRead(LoopSwitchPin); 
 
-  if (LiftSwitch == LOW) { //if LiftSwitch pressed then play wav file
+  if (LiftSwitch == true) { //if LiftSwitch pressed then play wav file
     if(!LiftTriggered) {
       LiftTriggered = true;
-      Audio.play("CCHAMP.wav");
-      Audio.loop(LoopSwitch); // 0 or 1. Can be changed during playback for full control of looping.
-      if(Audio.isPlaying()) {
+      if (LoopSwitch) {
+        mp3_player.loop(1);
+      }
+      else {
+        mp3_player.play(1);
+      }
+      if(mp3_player.available()) {
         Serial.println("Audio is playing");
       }
     }
   }
-  if (LiftSwitch == HIGH) { // if LiftSwitch pressed then play wav file
-    if(Audio.isPlaying()) {
-      Audio.stopPlayback();      //stops the music, but leaves the timer running
+  if (LiftSwitch == false) { // if LiftSwitch pressed then play wav file
+    if(!mp3_player.available()) {
+      mp3_player.pause();      //stops the music
       Serial.println("Audio isn't playing");
     }
     LiftTriggered = false;
   }
-  return Audio.isPlaying();
+  return !mp3_player.available();
 }
+
   
 // Input a value 0 to 255 to get a color value.
 // The colours are a transition r - g - b - back to r.
